@@ -24,5 +24,11 @@
   },
   "devDependencies": {
     "coffee-script": "~1.6.3"
+  },
+  "scripts": {
+    "prepublish": "coffee -c -o lib src"
+  },
+  "bin": {
+    "genposh": "./bin/genposh"
   }
 }
