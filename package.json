@@ -1,0 +1,27 @@
+{
+  "name": "node-posh",
+  "version": "0.0.0",
+  "description": "PKIX Over Secure HTTP (POSH) tools for node.js",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "posh",
+    "srv",
+    "pkix",
+    "x509",
+    "jose",
+    "xmpp",
+    "security"
+  ],
+  "author": "Joe Hildebrand",
+  "license": "MIT",
+  "dependencies": {
+    "pem": "~1.2.2",
+    "async": "~0.2.9"
+  },
+  "devDependencies": {
+    "coffee-script": "~1.6.3"
+  }
+}
