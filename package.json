@@ -19,7 +19,8 @@
   "license": "MIT",
   "dependencies": {
     "pem": "~1.2.2",
-    "async": "~0.2.9"
+    "async": "~0.2.9",
+    "optimist": "~0.6.0"
   },
   "devDependencies": {
     "coffee-script": "~1.6.3"
