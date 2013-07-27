@@ -63,7 +63,7 @@ gen_posh = (cert)->
         x5c: cert
       ]
 
-    fs.writeFile "#{argv.out}/posh.#{argv.service}.json", JSON.stringify posh, (er)->
+    fs.writeFile "#{argv.out}/posh.#{argv.service}.json", JSON.stringify(posh), (er)->
       complain er if er
 
 if argv.cert
