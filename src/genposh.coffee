@@ -23,6 +23,10 @@ options =
     description: "SRV-style service name for the POSH file"
     default: '_xmpp._tcp'
     alias: 's'
+  maxcerts:
+    description: "The maximum number of certs to output in the x5c field.  0 means all."
+    default: 0
+    alias: 'm'
 
 argv = optimist.usage('Usage: $0 [options] [common name]', options).argv
 
@@ -52,7 +56,11 @@ gen_posh = (cert)->
     [{modulus:modulus},{fingerprint:fing},{commonName,cn}] = results
     modulus = hex2base64url modulus
     fing = hex2base64url(fing.replace /:/g, '')
-    cert = cert.replace(/-----[^\n]+\n?/gm, '').replace(/\n/g, '')
+    cert = cert.replace(/-----[^\n]+\n?/gm, ',').replace(/\n/g, '')
+    cert = cert.split(',').filter (c)->
+      c.length > 0
+    if argv.maxcerts > 0
+      cert = cert.splice 0, argv.maxcerts
 
     posh =
       keys: [
@@ -86,5 +94,5 @@ else
       (cb)->
         fs.writeFile "#{argv.out}/#{cn}.pem", keys.certificate, cb
     ], (er, results)->
-      compain er if er
+      complain er if er
       gen_posh keys.certificate
