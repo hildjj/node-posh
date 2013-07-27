@@ -53,7 +53,7 @@ gen_posh = (cert)->
   ], (er,results)->
     complain er if er
 
-    [{modulus:modulus},{fingerprint:fing},{commonName,cn}] = results
+    [{modulus:modulus},{fingerprint:fing},{commonName:cn}] = results
     modulus = hex2base64url modulus
     fing = hex2base64url(fing.replace /:/g, '')
     cert = cert.replace(/-----[^\n]+\n?/gm, ',').replace(/\n/g, '')
