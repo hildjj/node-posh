@@ -1,7 +1,7 @@
 node-posh
 =========
 
-PKIX Over Secure HTTP (POSH) tools for node.js
+PKIX Over Secure HTTP (POSH) tools for node.js.  See http://tools.ietf.org/html/draft-miller-posh-00 for more information.
 
 # Usage
 
