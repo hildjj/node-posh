@@ -30,7 +30,7 @@ if argv.help
   optimist.showHelp()
   process.exit 64
 
-complain = (er) ->
+complain = (er)->
   console.log er
   process.exit 1
 
@@ -49,12 +49,11 @@ gen_posh = (cert)->
   ], (er,results)->
     complain er if er
 
-    modulus = hex2base64url results[0].modulus
-    fing = results[1].fingerprint.replace /:/g, ''
-    fing = hex2base64url fing
-    cert = cert.replace /-----[^\n]+\n?/gm, ''
-    cert = cert.replace /\n/g, ''
-    cn = results[2].commonName
+    [{modulus:modulus},{fingerprint:fing},{commonName,cn}] = results
+    modulus = hex2base64url modulus
+    fing = hex2base64url(fing.replace /:/g, '')
+    cert = cert.replace(/-----[^\n]+\n?/gm, '').replace(/\n/g, '')
+
     posh =
       keys: [
         kty: "RSA"
@@ -63,15 +62,14 @@ gen_posh = (cert)->
         e:   "AQAB"
         x5c: cert
       ]
-    json = JSON.stringify posh
-    fs.writeFile "#{argv.out}/posh.#{argv.service}.json", json, (er)->
+
+    fs.writeFile "#{argv.out}/posh.#{argv.service}.json", JSON.stringify posh, (er)->
       complain er if er
 
 if argv.cert
   fs.readFile argv.cert, (er, cert)->
     complain er if er
-    cert = cert.toString('utf8')
-    gen_posh cert
+    gen_posh cert.toString('utf8')
 else
   cn = argv._[0] || 'localhost'
 
