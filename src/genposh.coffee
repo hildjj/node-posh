@@ -19,6 +19,10 @@ options =
   cert:
     description: "Use this existing certificate file, rather than creating a new one"
     alias: 'c'
+  service:
+    description: "SRV-style service name for the POSH file"
+    default: '_xmpp._tcp'
+    alias: 's'
 
 argv = optimist.usage('Usage: $0 [options] [common name]', options).argv
 
@@ -60,7 +64,7 @@ gen_posh = (cert)->
         x5c: cert
       ]
     json = JSON.stringify posh
-    fs.writeFile "#{argv.out}/posh._xmpp._tcp.json", json, (er)->
+    fs.writeFile "#{argv.out}/posh.#{argv.service}.json", json, (er)->
       complain er if er
 
 if argv.cert
