@@ -11,7 +11,7 @@ Options:
   --help, -h        Show this message and exit
   --out, -o         Directory in which to output files             [default: "."]
   --days, -d        Days of validity for the generated certificate [default: 365]
-  --service, -s     SRV-style service name for the POSH file       [default: "_xmpp._tcp"]
+  --service, -s     SRV-style service name for the POSH file       [default: "_xmpp-server._tcp"]
   --maxcerts, -m    The maximum number of certs to output in the
                     x5c field.  0 means all.                       [default: 0]
   --commonname, -c  Create a new certificate, with this common name (multiple ok)
@@ -54,7 +54,7 @@ class FileCert
 argv =
   help: false
   maxcerts: 0
-  service: '_xmpp._tcp'
+  service: '_xmpp-server._tcp'
   days: 365
   out: '.'
   certs: []
