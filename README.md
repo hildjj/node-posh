@@ -17,6 +17,10 @@ http://tools.ietf.org/html/draft-miller-posh-00 for more information.
 	                    x5c field.  0 means all.                       [default: 0]
 	  --commonname, -c  Create a new certificate, with this common name (multiple ok)
 
+# Installation
+
+	npm install node-posh
+
 # Example
 
 Generate a new certificate that is good for 30 days.  Keep the old certificate 
