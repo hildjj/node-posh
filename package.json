@@ -5,10 +5,11 @@
   "homepage": "https://github.com/hildjj/node-posh",
   "repository": {
     "url": "git://github.com/hildjj/node-posh.git"
-  },  
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "scripts": {
+    "prepublish": "coffee -c -o lib src"
+  },
+  "main": "./lib/index.js",
   "keywords": [
     "posh",
     "srv",
@@ -22,13 +23,12 @@
   "license": "MIT",
   "dependencies": {
     "pem": "~1.2.2",
-    "async": "~0.2.9"
+    "q": "~0.9.6",
+    "request": "~2.25.0",
+    "service-parser": "~0.0.4"
   },
   "devDependencies": {
     "coffee-script": "~1.6.3"
-  },
-  "scripts": {
-    "prepublish": "coffee -c -o lib src"
   },
   "bin": {
     "genposh": "./bin/genposh"

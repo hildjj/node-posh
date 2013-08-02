@@ -1,7 +1,7 @@
 pem = require 'pem'
-async = require 'async'
 fs = require 'fs'
 posh = require './index'
+Q = require 'q'
 
 usage = ()->
   process.stderr.write """
@@ -27,29 +27,24 @@ class NewCert
     @days = 365
     @dir = '.'
 
-  create: (cb)->
-    pem.createCertificate
+  create: ->
+    Q.nfcall(pem.createCertificate,
       days: @days
       selfSigned: true
       commonName: @cn
-    , (er, keys)=>
-      return cb er if er
-
-      async.parallel [
-        (cb)=>
-          fs.writeFile "#{@dir}/#{@cn}-key.pem", keys.clientKey, cb
-        (cb)=>
-          fs.writeFile "#{@dir}/#{@cn}.pem", keys.certificate, cb
-      ], (er, results)->
-        cb er, keys.certificate
+    ).then (keys)=>
+      Q.all([
+        Q.nfcall fs.writeFile, "#{@dir}/#{@cn}-key.pem", keys.clientKey
+        Q.nfcall fs.writeFile, "#{@dir}/#{@cn}.pem", keys.certificate
+      ]).then ()->
+        keys.certificate
 
 class FileCert
   constructor: (@fn)->
 
-  create: (cb)->
-    fs.readFile @fn, (er,data)->
-      cb er, if er then null else data.toString('utf8')
-
+  create: ->
+    Q.nfcall(fs.readFile, @fn).then (data)->
+      data.toString 'utf8'
 
 argv =
   help: false
@@ -78,11 +73,10 @@ for c in argv.certs when c instanceof NewCert
   c.days = argv.days
   c.dir = argv.out
 
-async.map argv.certs, (c,cb)->
-  c.create cb
-, (er, certs)->
-  complain er if er
-  posh.create certs, argv.maxcerts, (er, json)->
-    complain er if er
-    posh.write argv.out, argv.service, json, (er)->
-      complain er if er
+f = argv.certs.map (cert)->
+  c.create()
+Q.all(f).then (certs)->
+  console.log certs
+  posh.create(certs, argv.maxcerts).then (json)->
+    posh.write argv.out, argv.service, json
+, complain
