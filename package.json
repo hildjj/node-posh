@@ -1,6 +1,6 @@
 {
   "name": "node-posh",
-  "version": "0.0.5",
+  "version": "0.1.0",
   "description": "PKIX Over Secure HTTP (POSH) tools for node.js",
   "homepage": "https://github.com/hildjj/node-posh",
   "repository": {
