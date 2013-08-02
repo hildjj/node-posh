@@ -28,7 +28,8 @@
     "service-parser": "~0.0.4"
   },
   "devDependencies": {
-    "coffee-script": "~1.6.3"
+    "coffee-script": "~1.6.3",
+    "coffeedoc": "~0.2.11"
   },
   "bin": {
     "genposh": "./bin/genposh"

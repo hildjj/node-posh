@@ -29,38 +29,20 @@ unless domain.length then usage()
 Q.all(ca.map (c)->
   Q.nfcall fs.readFile, c).then (certs)->
     for d in domain
-      p = new posh.POSH
-        domain: d
-        srv: '_xmpp-client._tcp'
-        fallbackport: 5222
-        startTLS: true
+      console.log "Connecting to #{domain}"
+      p = new posh.POSH d, '_xmpp-client._tcp',
+        fallback_port: 5222
+        start_tls: true
         ca: certs
 
       p.on 'error', (er)->
         console.log 'ERROR', er
 
-      p.on 'connected', (sock)->
-        console.log 'connected'
-        ss = ''
-        got_data = (data)->
-          s = data.toString('utf8')
-          console.log s
-          ss += s
-          if ss.match /\<proceed\s+xmlns=['"]urn:ietf:params:xml:ns:xmpp-tls['"]\/\>$/
-            sock.removeListener 'data', got_data
-            p.start_tls()
+      p.on 'posh request', (url)->
+        console.log "Requesting POSH from #{url}"
 
-        sock.on 'data', got_data
-        sock.write """
-<?xml version='1.0'?>
-<stream:stream
-    to='#{d}'
-    version='1.0'
-    xml:lang='en'
-    xmlns='jabber:server'
-    xmlns:stream='http://etherx.jabber.org/streams'>
-<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>
-"""
+      p.on 'connecting', (host, port)->
+        console.log "Connecting to #{host}:#{port}"
 
       p.on 'secure', ->
         console.log 'secure'
@@ -70,5 +52,30 @@ Q.all(ca.map (c)->
 
       p.on 'no posh', (er)->
         console.log 'NO POSH', er
+
+      p.on 'connect', (sock)->
+        console.log 'connected'
+        ss = ''
+        got_data = (data)->
+          s = data.toString('utf8')
+          console.log "RECV:", s
+          ss += s
+          if ss.match /\<proceed\s+xmlns=['"]urn:ietf:params:xml:ns:xmpp-tls['"]\/\>$/
+            sock.removeListener 'data', got_data
+            p.start_tls()
+
+        sock.on 'data', got_data
+        out = """
+<?xml version='1.0'?>
+<stream:stream
+    to='#{d}'
+    version='1.0'
+    xml:lang='en'
+    xmlns='jabber:server'
+    xmlns:stream='http://etherx.jabber.org/streams'>
+<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>
+"""
+        console.log "SEND:", out
+        sock.write out
 
       p.connect()
