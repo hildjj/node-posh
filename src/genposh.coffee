@@ -76,7 +76,6 @@ for c in argv.certs when c instanceof NewCert
 f = argv.certs.map (cert)->
   c.create()
 Q.all(f).then (certs)->
-  console.log certs
   posh.create(certs, argv.maxcerts).then (json)->
     posh.write argv.out, argv.service, json
 , complain

@@ -39,6 +39,24 @@ _cert_to_x5c = (cert,maxdepth=0)->
     cert = cert.splice 0, maxdepth
   cert
 
+_get_cert_info = (cert)->
+  Q.spread [
+     Q.nfcall(pem.getModulus, cert)
+     Q.nfcall(pem.getFingerprint, cert)
+     Q.nfcall(pem.readCertificateInfo, cert)
+  ], (modulus, fingerprint, info)->
+    info.modulus = _hex_to_base64url modulus.modulus
+    info.fingerprint = _hex_to_base64url fingerprint.fingerprint.replace(/:/g, '')
+    info
+
+_get_x5c_info = (x5c)->
+  cert = (x5c[y..y+63] for y in [0..(x5c.length)] by 64).join '\n'
+  """-----BEGIN CERTIFICATE-----
+#{c}
+-----END CERTIFICATE-----
+"""
+  _get_cert_info(cert)
+
 _cert_to_jwk = (cert, maxdepth)->
   ###
   Convert a certificate to a
@@ -48,22 +66,13 @@ _cert_to_jwk = (cert, maxdepth)->
    * `cert` PEM-encoded certificate chain
    * `maxdepth` The maximum number of certificates to use from the chain.
   ###
-  Q.spread [
-     Q.nfcall(pem.getModulus, cert)
-     Q.nfcall(pem.getFingerprint, cert)
-     Q.nfcall(pem.readCertificateInfo, cert)
-  ], (modulus, fingerprint, info)->
-    modulus = _hex_to_base64url modulus.modulus
-    fing = _hex_to_base64url fingerprint.fingerprint.replace(/:/g, '')
-    cn = info.commonName
-    cert = _cert_to_x5c cert, maxdepth
-
+  _get_cert_info(cert).then (info)->
     # TODO: retrieve exponent from cert, instead of assuming AQAB.
     kty: "RSA"
-    kid: "#{cn}:#{fing}"
-    n:   modulus
+    kid: "#{info.commonName}:#{info.fingerprint}"
+    n:   info.modulus
     e:   "AQAB"
-    x5c: cert
+    x5c: _cert_to_x5c cert, maxdepth
 
 exports.create = (certs, maxdepth)->
   ###
@@ -83,7 +92,8 @@ exports.create = (certs, maxdepth)->
 
   p = certs.map (c)->
     _cert_to_jwk c, maxdepth
-  Q.all(p)
+  Q.all(p).then (all)->
+    keys: all
 
 exports.write = (dir, service, posh)->
   ###
@@ -199,7 +209,6 @@ class POSH extends events.EventEmitter
       [@host, @port]
 
   _connect_internal: (tls, connector)->
-    console.log 'internal'
     @posh = @get_posh()
 
     @resolve().spread (host, port) =>
