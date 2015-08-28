@@ -1,127 +1,49 @@
 ###
 # node-posh #
-See [draft-miller-posh](http://tools.ietf.org/html/draft-miller-posh-00)
+See [draft-miller-posh](http://tools.ietf.org/html/draft-miller-posh-04)
 for more details on PKIX over Secure HTTP (POSH).
 ###
 
-fs = require 'fs'
+bb = require 'bluebird'
+services = require 'service-parser'
+
+crypto = require 'crypto'
+dns = bb.promisifyAll(require 'dns')
 events = require 'events'
-dns = require 'dns'
+fs = bb.promisifyAll(require 'fs')
 net = require 'net'
 tls = require 'tls'
 
-pem = require 'pem'
-Q = require 'q'
-request = require 'request'
-services = require 'service-parser'
+@file = (data, dir, srv, seconds) ->
+  fs.statAsync dir
+  .then (stats) ->
+    if !stats.isDirectory()
+      return bb.reject "Invalid directory: #{dir}"
+  , ->
+    fs.mkdirAsync dir
+  .then ->
+    s = JSON.stringify
+      fingerprints: [
+        "sha-1": crypto.createHash('sha1').update(data).digest('base64')
+        "sha-256": crypto.createHash('sha256').update(data).digest('base64')
+      ]
+      expires: seconds
+    fn = "#{dir}/posh.#{srv}.json"
+    console.error "Writing '#{fn}'"
+    fs.writeFileAsync fn, s
 
-#Q.longStackSupport = true
-
-_hex_to_base64url = (hex)->
-  if hex.length % 2
-    hex = '0' + hex
-  b64 = new Buffer(hex, 'hex').toString('base64')
-  b64.replace(/\=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
-
-_cert_to_x5c = (cert,maxdepth=0)->
+class @POSHtls extends events.EventEmitter
   ###
-  Convert a PEM-encoded certificate to the version used in the x5c element
-  of a [JSON Web Key](http://tools.ietf.org/html/draft-ietf-jose-json-web-key).
-
-   * `cert` PEM-encoded certificate chain
-   * `maxdepth` The maximum number of certificates to use from the chain.
-  ###
-  cert = cert.replace(/-----[^\n]+\n?/gm, ',').replace(/\n/g, '')
-  cert = cert.split(',').filter (c)->
-    c.length > 0
-
-  if maxdepth > 0
-    cert = cert.splice 0, maxdepth
-  cert
-
-_get_cert_info = (cert)->
-  Q.spread [
-     Q.nfcall(pem.getModulus, cert)
-     Q.nfcall(pem.getFingerprint, cert)
-     Q.nfcall(pem.readCertificateInfo, cert)
-  ], (modulus, fingerprint, info)->
-    info.modulus = _hex_to_base64url modulus.modulus
-    info.fingerprint = _hex_to_base64url fingerprint.fingerprint.replace(/:/g, '')
-    info
-
-_get_x5c_info = (x5c)->
-  cert = (x5c[y..y+63] for y in [0..(x5c.length)] by 64).join '\n'
-  """-----BEGIN CERTIFICATE-----
-#{c}
------END CERTIFICATE-----
-"""
-  _get_cert_info(cert)
-
-_cert_to_jwk = (cert, maxdepth)->
-  ###
-  Convert a certificate to a
-  [JSON Web Key](http://tools.ietf.org/html/draft-ietf-jose-json-web-key)
-  representation.
-
-   * `cert` PEM-encoded certificate chain
-   * `maxdepth` The maximum number of certificates to use from the chain.
-  ###
-  _get_cert_info(cert).then (info)->
-    # TODO: retrieve exponent from cert, instead of assuming AQAB.
-    kty: "RSA"
-    kid: "#{info.commonName}:#{info.fingerprint}"
-    n:   info.modulus
-    e:   "AQAB"
-    x5c: _cert_to_x5c cert, maxdepth
-
-exports.create = (certs, maxdepth)->
-  ###
-  Create a POSH document from a list of certificates.
-
-   * `certs` an array of PEM-encoded certificate chains.  The first certificate
-     in each chain will be extracted into the POSH public key information.
-   * `maxdepth` the maxiumum number of certificates to use from each chain.
-   * __returns__ a [Q](https://github.com/kriskowal/q) promise that will be
-     fulfilled with a JavaScript representation (not a JSON string!) of the
-     POSH document.
-  ###
-  unless Array.isArray(certs)
-    certs = [certs]
-  if certs.length == 0
-    throw new Error 'No certs specified'
-
-  p = certs.map (c)->
-    _cert_to_jwk c, maxdepth
-  Q.all(p).then (all)->
-    keys: all
-
-exports.write = (dir, service, posh)->
-  ###
-  Write a file with the given POSH object in a file with the correct name
-  for the given service.
-
-    * `dir` the directory to write into
-    * `service` the SRV record name for the target service.
-      Example: "_xmpp-server._tcp"
-    * __returns__ a [Q](https://github.com/kriskowal/q) promise that will be
-     fulfilled when the file is finished writing
-  ###
-  Q.nfcall fs.writeFile, "#{dir}/posh.#{service}.json", JSON.stringify(posh)
-
-
-class POSH extends events.EventEmitter
-  ###
-  Make a POSH-verified connection to a given domain on a given service.
+  Make a TLS connection to a given domain on a given service.
 
   Events:
 
-   * `'posh request', url` about to request a POSH document at the given URL
-   * `'no posh', er` No POSH document could be retrieved.  Not really an error.
    * `'connecting', host, port, tls` Connecting on the given host and port.  If
      `tls` is true, a TLS handshake will start as soon as the connection
      finishes.
    * `'error', er` an error was detected.
-   * `'connect', socket` the given socket was connected
+   * `'connect', socket` the given socket was connected.  If you need to do
+     start-tls, do so now, then call @tls_start
    * `'secure', service_cert, posh_document` the connection is secure
       either by RFC 6125 or POSH.  The posh_document is null if the service_cert
       was valid via RFC 6125.
@@ -146,11 +68,12 @@ class POSH extends events.EventEmitter
         when making HTTPS calls for POSH certs.
     ###
     super @
-    @options = {
+    @options =
       fallback_port: -1
       start_tls: false
       ca: []
-    }
+      verbose: false
+
     for k,v of options ? {}
       @options[k] = v
 
@@ -161,46 +84,24 @@ class POSH extends events.EventEmitter
         if serv
           @options.fallback_port = serv.port
 
-    @posh_url = "https://#{@dns_domain}/.well-known/posh.#{@dns_srv}.json"
+    # set the defaults
     @host = @dns_domain
     @port = @options.fallback_port
-
-  get_posh: ->
-    ###
-    Attempt to get the POSH assertion for the domain and SRV protocol
-    given in the constructor
-
-    * __returns__ a [Q](https://github.com/kriskowal/q) promise that will be
-     fulfilled with the POSH object when/if it is retrieved.  Rejections of
-     this promise usually shouldn't be treated as an error.
-    ###
-    @emit 'posh request', @posh_url
-    Q.nfcall(request,
-      url: @posh_url
-      followRedirect: false
-      ca: @options.ca)
-    .then (resp)=>
-      status = resp[0].statusCode
-      if status != 200
-        er = new Error "HTTP error #{status}"
-        @emit 'no posh', er
-        Q.reject er
-      else
-        @posh_json = JSON.parse resp[1]
-    , (er)=>
-      @emit 'no posh', er
-      Q.reject new Error 'No POSH HTTP server'
+    @wait = null
 
   resolve: ->
     ###
     Do the SRV resolution.
 
-    * __returns__ a [Q](https://github.com/kriskowal/q) promise that will be
+    * __returns__ a promise that will be
      fulfilled with `host`, `port` when complete.  Ignores DNS errors, returning
      the original domain and fallback port.
     ###
-    Q.nfcall(dns.resolveSrv, "#{@dns_srv}.#{@dns_domain}")
-    .then (addresses)=>
+    if !@dns_srv
+      return bb.resolve([@host, @port])
+
+    dns.resolveSrvAsync "#{@dns_srv}.#{@dns_domain}"
+    .then (addresses) =>
       # TODO: full SRV algorithm
       if addresses.length
         [{name:@host, port:@port}] = addresses
@@ -209,72 +110,64 @@ class POSH extends events.EventEmitter
       [@host, @port]
 
   _connect_internal: (tls, connector)->
-    @posh = @get_posh()
-
     @resolve().spread (host, port) =>
       @emit 'connecting', host, port, tls
-      d = Q.defer()
+      if @options.verbose
+        console.log "Connecting to #{host}:#{port} (TLS: #{tls})"
 
+      @wait = bb.defer()
       @cli = connector host, port
 
-      @cli.on 'error', (er)=>
-        @emit 'error', er
-        d.reject er
-      @cli.once 'connect', ()=>
-        @emit 'connect', @cli
-        d.resolve @cli
-      d.promise
+      @cli.on 'error', (er) =>
+        @wait.reject er
+        @wait = null
+      @cli.once 'connect', () =>
+        @emit 'connect', tls
+      @cli.once 'secureConnect', =>
+        @wait.resolve @_check_cert()
+        @wait = null
+      @cli.on 'data', (data)=>
+        if @options.verbose
+          console.log 'RECV: ', data.toString('utf-8')
+        @emit 'data', data
 
-  connect_plain: ()->
-    ###
-    Connect without starting TLS.  Wait for the `connect` event, then call
-    `start_tls`.
-
-    * __returns__ a [Q](https://github.com/kriskowal/q) promise that will be
-     fulfilled with the connected socket.
-    ###
-    @_connect_internal false, (host, port)->
-      net.connect
-        host: host
-        port: port
+      @wait.promise
 
   _check_cert: ()=>
     cert = @cli.getPeerCertificate()
     if @cli.authorized
       @emit 'secure', cert
-      Q.resolve true, cert
     else
-      d = Q.defer()
-      @posh.then (pjson) =>
-        if pjson?
-          modu = _hex_to_base64url cert.modulus
-          exp = _hex_to_base64url cert.exponent
-          for k in pjson.keys
-            # TODO: get the k5c and proess with pem
-            if (k.n == modu) and (k.e == exp)
-              @emit 'secure', cert, pjson
-              return d.resolve true, cert, pjson
-        @emit 'insecure', cert, pjson
-        d.resolve false, cert, pjson
-      , (er)=>
-        @emit 'insecure', cert
-        d.resolve false, cert
+      @emit 'check', cert
+    [@cli.authorized, cert]
 
-      d.promise
-
-  connect_tls: ()->
+  connect: ()->
     ###
-    Connect to the given serice, and start TLS immediately.
+    Connect to the domain on the specified service, using either an initially-
+    plaintext approach (options.start_tls=true), or an initially-encrypted
+    approach (options.start_tls=false).
 
-    * __returns__ a [Q](https://github.com/kriskowal/q) promise that will be
-     fulfilled with the connected socket.
+    * __returns__ a promise
     ###
-    @_connect_internal true, (host, port)->
-      tls.connect
-        host: @host
-        port: @port
-        rejectUnauthorized: false
-    .then @_check_cert
+    if @options.start_tls
+      @_connect_internal false, (host, port) ->
+        net.connect
+          host: host
+          port: port
+    else
+      @_connect_internal true, (host, port) ->
+        tls.connect
+          host: host
+          port: port
+          rejectUnauthorized: false
+
+  write: (data, encoding) ->
+    if @options.verbose
+      console.log "SEND:", data
+    @cli.write data, encoding
+
+  end: (data, encoding) ->
+    @cli.end(data, encoding)
 
   start_tls: ()->
     ###
@@ -284,26 +177,49 @@ class POSH extends events.EventEmitter
 
     @cli = tls.connect
       socket: @cli
-      rejectUnauthorized: false
       servername: @dns_domain
-    , @_check_cert
+      rejectUnauthorized: false
+    , =>
+      @wait.resolve @_check_cert()
+      @wait = null
 
-    # TODO: cause this error, and see if it fires twice.  Bet it does.
     @cli.on 'error', (er) =>
-      @emit 'error', er
+      @wait.reject er
+      @wait = null
 
-  connect: ()->
-    ###
-    Connect to the domain on the specified service, using either an initially-
-    plaintext approach (options.start_tls=true), or an initially-encrypted
-    approach (options.start_tls=false).
-
-    * __returns__ a [Q](https://github.com/kriskowal/q) promise that will be
-     fulfilled with the connected socket.
-    ###
-    if @options.start_tls
-      @connect_plain()
+class @POSHxmpp extends @POSHtls
+  constructor: (domain, options={}) ->
+    opts =
+      fallback_port: options.fallback_port ? 5269
+      start_tls: options.start_tls ? true
+      ca: options.ca ? []
+      server: options.server ? false
+    if opts.server
+      srv = '_xmpp-server._tcp'
+      ns  = 'jabber:server'
     else
-      @connect_tls()
+      srv = '_xmpp-client._tcp'
+      ns  = 'jabber:client'
 
-exports.POSH = POSH
+    super domain, srv, opts
+
+    ss = ''
+    @on 'data', (data) =>
+      s = data.toString('utf8')
+      ss += s
+      if ss.match /\<proceed\s/
+        @start_tls()
+      if ss.match /\<failure\s/
+        @wait.reject("start-tls FAILURE")
+        @wait = null
+
+    @on 'connect', (tls) =>
+      if tls then return
+      @write """
+<?xml version='1.0'?>
+<stream:stream xmlns:stream='http://etherx.jabber.org/streams'
+  version='1.0' xml:lang='en'
+  to='#{domain}'
+  xmlns='#{ns}'>
+<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>
+""", 'utf-8'

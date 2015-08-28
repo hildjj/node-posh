@@ -1,81 +1,102 @@
-pem = require 'pem'
-fs = require 'fs'
+pkg = require '../package.json'
+bb = require 'bluebird'
+fs = bb.promisifyAll(require 'fs')
 posh = require './index'
-Q = require 'q'
 
-usage = ()->
-  process.stderr.write """
-Usage: genposh [options] [cert filename...]
+@fromCert = (argv) ->
+  fs.readFileAsync argv.cert, 'utf-8'
+  .then (data) ->
+    data = data.replace /^.*-----BEGIN CERTIFICATE-----/, ''
+    data = data.replace /-----END CERTIFICATE-----.*/, ''
+    data = data.replace /\s+/g, ''
+    data = new Buffer data, 'base64'
+    posh.file data, argv.out, argv.srv, argv.time
 
-Options:
-  --help, -h        Show this message and exit
-  --out, -o         Directory in which to output files             [default: "."]
-  --days, -d        Days of validity for the generated certificate [default: 365]
-  --service, -s     SRV-style service name for the POSH file       [default: "_xmpp-server._tcp"]
-  --maxcerts, -m    The maximum number of certs to output in the
-                    x5c field.  0 means all.                       [default: 0]
-  --commonname, -c  Create a new certificate, with this common name (multiple ok)
-"""
-  process.exit 64
-
-complain = (er)->
-  console.log er
-  process.exit 1
-
-class NewCert
-  constructor: (@cn)->
-    @days = 365
-    @dir = '.'
-
-  create: ->
-    Q.nfcall(pem.createCertificate,
-      days: @days
-      selfSigned: true
-      commonName: @cn
-    ).then (keys)=>
-      Q.all([
-        Q.nfcall fs.writeFile, "#{@dir}/#{@cn}-key.pem", keys.clientKey
-        Q.nfcall fs.writeFile, "#{@dir}/#{@cn}.pem", keys.certificate
-      ]).then ()->
-        keys.certificate
-
-class FileCert
-  constructor: (@fn)->
-
-  create: ->
-    Q.nfcall(fs.readFile, @fn).then (data)->
-      data.toString 'utf8'
-
-argv =
-  help: false
-  maxcerts: 0
-  service: '_xmpp-server._tcp'
-  days: 365
-  out: '.'
-  certs: []
-
-args = process.argv.slice 2
-while args.length
-  a = args.shift()
-  switch a
-    when '-h', '--help' then usage()
-    when '-o', '--out' then argv.out = args.shift() || usage()
-    when '-d', '--days' then argv.days = parseInt(args.shift()) || usage()
-    when '-s', '--service' then argv.service = args.shift() || usage()
-    when '-m', '--maxcerts' then argv.maxcerts = parseInt(args.shift()) || usage()
-    when '-c', '--commonname'
-      cn = args.shift() || usage()
-      argv.certs.push(new NewCert cn)
+@fromSocket = (argv) ->
+  srv = argv.srv ? argv.port
+  switch argv.starttls
+    when 'xmpp'
+      opts =
+      p = new posh.POSHxmpp argv.domain,
+        server: !!argv.srv.match /_xmpp-server/
+        verbose: argv.verbose
+      p.connect().spread (ok, cert) ->
+        posh.file cert.raw, argv.out, srv, argv.time
     else
-      argv.certs.push(new FileCert a)
+      p = new posh.POSHtls argv.domain, argv.srv,
+        fallback_port: argv.port
+        verbose: argv.verbose
+      p.connect().spread (ok, cert) ->
+        posh.file cert.raw, argv.out, srv, argv.time
 
-for c in argv.certs when c instanceof NewCert
-  c.days = argv.days
-  c.dir = argv.out
+@parse = (args) ->
+  args = args ? process.argv.slice(2)
+  opt = require('nomnom')
+    .printer (str, code) ->
+      c = code || 64
+      if c
+        console.error str
+      else
+        console.log str
+      process.exit c
+    .options
+      version:
+        abbr: 'V'
+        flag: true,
+        help: 'Print version and exit',
+        callback: -> "version 1.2.4"
+      vebose:
+        abbr: 'v'
+        flag: true
+        help: 'Print the Start-TLS protocol sent and received'
+      cert:
+        position: 0
+        help: 'PEM-encoded certificate file'
+      domain:
+        abbr: 'd'
+        metavar: 'DOMAIN'
+        help: 'Domain to connect to'
+      out:
+        abbr: 'o'
+        metavar: 'DIRECTORY'
+        help: 'Output directory'
+        default: '.'
+      port:
+        abbr: 'p'
+        metavar: 'PORT'
+        help: 'Fallback port if SRV fails'
+        callback: (port) ->
+          if !parseInt(port)
+            'PORT must be an integer'
+      srv:
+        abbr: 's'
+        metavar: 'SERVICE'
+        help: 'SRV-style service name'
+      starttls:
+        metavar: 'protocol'
+        help: 'Use the given start-TLS protocol'
+        choices: ['xmpp']
+      time:
+        abbr: 't'
+        metavar: 'SECONDS'
+        help: 'Seconds of validity'
+        default: 24*60*60
+    .script 'genposh'
+    .help '''
+You must either specify a certificte file or a DOMAIN.
+If connecting to a DOMAIN, you must specify a PORT or a SERVICE.'''
 
-f = argv.certs.map (cert)->
-  c.create()
-Q.all(f).then (certs)->
-  posh.create(certs, argv.maxcerts).then (json)->
-    posh.write argv.out, argv.service, json
-, complain
+  argv = opt.nom(args)
+
+  if argv.cert?
+    p = @fromCert argv
+  else
+    if !argv.domain or (!argv.port and !argv.srv)
+      opt.print opt.getUsage()
+    p = @fromSocket argv
+
+  p.then ->
+    process.exit 0
+  , (er) ->
+    console.log er
+    process.exit 1

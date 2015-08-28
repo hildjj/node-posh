@@ -15,21 +15,25 @@
     "srv",
     "pkix",
     "x509",
-    "jose",
     "xmpp",
     "security"
   ],
   "author": "Joe Hildebrand <joe-github@cursive.net>",
   "license": "MIT",
   "dependencies": {
-    "pem": "~1.2.2",
-    "q": "~0.9.6",
-    "request": "~2.25.0",
-    "service-parser": "~0.0.4"
+    "bluebird": "^2.9",
+    "nomnom": "^1.8.1",
+    "request": "~2.61",
+    "service-parser": "~0.0"
   },
   "devDependencies": {
-    "coffee-script": "~1.6.3",
-    "coffeedoc": "~0.2.11"
+    "coffee-script": "~1.9",
+    "coffeedoc": "~0.3",
+    "grunt": "^0.4",
+    "grunt-contrib-coffee": "^0.13",
+    "grunt-contrib-watch": "^0.6.1",
+    "grunt-release": "^0.13",
+    "jit-grunt": "^0.9"
   },
   "bin": {
     "genposh": "./bin/genposh"
