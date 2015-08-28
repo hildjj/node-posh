@@ -98,15 +98,19 @@ class @POSHtls extends events.EventEmitter
      the original domain and fallback port.
     ###
     if !@dns_srv
-      return bb.resolve([@host, @port])
+      return bb.resolve [@host, @port]
 
     dns.resolveSrvAsync "#{@dns_srv}.#{@dns_domain}"
     .then (addresses) =>
+      if @options.verbose
+        console.log "DNS addresses:", addresses
       # TODO: full SRV algorithm
       if addresses.length
         [{name:@host, port:@port}] = addresses
       [@host, @port]
-    , (er)->
+    , (er) =>
+      if @options.verbose
+        console.log "DNS fail:", er
       [@host, @port]
 
   _connect_internal: (tls, connector)->
@@ -194,6 +198,7 @@ class @POSHxmpp extends @POSHtls
       start_tls: options.start_tls ? true
       ca: options.ca ? []
       server: options.server ? false
+      verbose: options.verbose ? false
     if opts.server
       srv = '_xmpp-server._tcp'
       ns  = 'jabber:server'
@@ -204,14 +209,17 @@ class @POSHxmpp extends @POSHtls
     super domain, srv, opts
 
     ss = ''
-    @on 'data', (data) =>
+    got_data = (data) =>
       s = data.toString('utf8')
       ss += s
       if ss.match /\<proceed\s/
+        @removeListener 'data', got_data
         @start_tls()
       if ss.match /\<failure\s/
         @wait.reject("start-tls FAILURE")
         @wait = null
+
+    @on 'data', got_data
 
     @on 'connect', (tls) =>
       if tls then return
@@ -223,3 +231,35 @@ class @POSHxmpp extends @POSHtls
   xmlns='#{ns}'>
 <starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>
 """, 'utf-8'
+
+class @POSHsmtp extends @POSHtls
+  constructor: (domain, options={}) ->
+    opts =
+      fallback_port: options.fallback_port ? 20
+      start_tls: options.start_tls ? true
+      ca: options.ca ? []
+      verbose: options.verbose ? false
+    super domain, "_submission._tcp", opts
+
+    state = 0
+    ss = ''
+    got_data = (data) =>
+      s = data.toString('utf8')
+      ss += s
+      switch state
+        when 0
+          if ss.match /^\d+\s[^\n]*\n/m
+            ss = ''
+            state++
+            @write "EHLO #{domain}\n", 'utf-8'
+        when 1
+          if ss.match /^\d+\s[^\n]*\n/m
+            ss = ''
+            state++
+            @write 'STARTTLS\n', 'utf-8'
+        when 2
+          if ss.match /^220\s+[^\n]+$/m
+            @start_tls()
+            @removeListener 'data', got_data
+
+    @on 'data', got_data

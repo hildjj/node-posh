@@ -16,18 +16,18 @@ posh = require './index'
   srv = argv.srv ? argv.port
   switch argv.starttls
     when 'xmpp'
-      opts =
       p = new posh.POSHxmpp argv.domain,
         server: !!argv.srv.match /_xmpp-server/
         verbose: argv.verbose
-      p.connect().spread (ok, cert) ->
-        posh.file cert.raw, argv.out, srv, argv.time
+    when 'smtp'
+      p = new posh.POSHsmtp argv.domain,
+        verbose: argv.verbose
     else
       p = new posh.POSHtls argv.domain, argv.srv,
         fallback_port: argv.port
         verbose: argv.verbose
-      p.connect().spread (ok, cert) ->
-        posh.file cert.raw, argv.out, srv, argv.time
+  p.connect().spread (ok, cert) ->
+    posh.file cert.raw, argv.out, srv, argv.time
 
 @parse = (args) ->
   args = args ? process.argv.slice(2)
@@ -44,8 +44,8 @@ posh = require './index'
         abbr: 'V'
         flag: true,
         help: 'Print version and exit',
-        callback: -> "version 1.2.4"
-      vebose:
+        callback: -> pkg.version
+      verbose:
         abbr: 'v'
         flag: true
         help: 'Print the Start-TLS protocol sent and received'
@@ -75,7 +75,7 @@ posh = require './index'
       starttls:
         metavar: 'protocol'
         help: 'Use the given start-TLS protocol'
-        choices: ['xmpp']
+        choices: ['xmpp', 'smtp']
       time:
         abbr: 't'
         metavar: 'SECONDS'
