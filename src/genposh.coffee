@@ -13,20 +13,28 @@ posh = require './index'
     posh.file data, argv.out, argv.srv, argv.time
 
 @fromSocket = (argv) ->
-  srv = argv.srv ? argv.port
   switch argv.starttls
     when 'xmpp'
       p = new posh.POSHxmpp argv.domain,
         server: !!argv.srv.match /_xmpp-server/
         verbose: argv.verbose
-    when 'smtp'
+    when 'smtp', 'submission'
       p = new posh.POSHsmtp argv.domain,
         verbose: argv.verbose
+    when 'imap'
+      p = new posh.POSHimap argv.domain,
+        verbose: argv.verbose
+        start_tls: true
+    when 'imaps'
+      p = new posh.POSHimap argv.domain,
+        verbose: argv.verbose
+        start_tls: false
     else
-      p = new posh.POSHtls argv.domain, argv.srv,
+      p = new posh.POSHtls argv.domain, argv.srv ? argv.port,
         fallback_port: argv.port
         verbose: argv.verbose
   p.connect().spread (ok, cert) ->
+    srv = p.dns_srv ? argv.port
     posh.file cert.raw, argv.out, srv, argv.time
 
 @parse = (args) ->
@@ -68,14 +76,15 @@ posh = require './index'
         callback: (port) ->
           if !parseInt(port)
             'PORT must be an integer'
+      starttls:
+        abbr: 'P'
+        metavar: 'PROTOCOL'
+        help: 'Use the given start-TLS protocol'
+        choices: ['imap', 'imaps', 'smtp', 'submission', 'xmpp']
       srv:
         abbr: 's'
         metavar: 'SERVICE'
         help: 'SRV-style service name'
-      starttls:
-        metavar: 'protocol'
-        help: 'Use the given start-TLS protocol'
-        choices: ['xmpp', 'smtp']
       time:
         abbr: 't'
         metavar: 'SECONDS'
@@ -84,14 +93,14 @@ posh = require './index'
     .script 'genposh'
     .help '''
 You must either specify a certificte file or a DOMAIN.
-If connecting to a DOMAIN, you must specify a PORT or a SERVICE.'''
+If connecting to a DOMAIN, you must specify a PORT, SERVICE, or PROTOCOL.'''
 
   argv = opt.nom(args)
 
   if argv.cert?
     p = @fromCert argv
   else
-    if !argv.domain or (!argv.port and !argv.srv)
+    if !argv.domain or (!argv.port and !argv.srv and !argv.starttls)
       opt.print opt.getUsage()
     p = @fromSocket argv
 

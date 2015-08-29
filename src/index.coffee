@@ -110,7 +110,7 @@ class @POSHtls extends events.EventEmitter
       [@host, @port]
     , (er) =>
       if @options.verbose
-        console.log "DNS fail:", er
+        console.log "Continuing after DNS fail:", er
       [@host, @port]
 
   _connect_internal: (tls, connector)->
@@ -210,8 +210,7 @@ class @POSHxmpp extends @POSHtls
 
     ss = ''
     got_data = (data) =>
-      s = data.toString('utf8')
-      ss += s
+      ss += data.toString('utf8')
       if ss.match /\<proceed\s/
         @removeListener 'data', got_data
         @start_tls()
@@ -244,8 +243,7 @@ class @POSHsmtp extends @POSHtls
     state = 0
     ss = ''
     got_data = (data) =>
-      s = data.toString('utf8')
-      ss += s
+      ss += data.toString('utf8')
       switch state
         when 0
           if ss.match /^\d+\s[^\n]*\n/m
@@ -259,6 +257,37 @@ class @POSHsmtp extends @POSHtls
             @write 'STARTTLS\n', 'utf-8'
         when 2
           if ss.match /^220\s+[^\n]+$/m
+            @start_tls()
+            @removeListener 'data', got_data
+
+    @on 'data', got_data
+
+class @POSHimap extends @POSHtls
+  constructor: (domain, options={}) ->
+    opts =
+      start_tls: options.start_tls ? true
+      ca: options.ca ? []
+      verbose: options.verbose ? false
+    if opts.start_tls
+      srv = '_imap'
+      opts.fallback_port = options.fallback_port ? 143
+    else
+      srv = '_imaps'
+      opts.fallback_port = options.fallback_port ? 993
+    super domain, "#{srv}._tcp", opts
+
+    state = 0
+    ss = ''
+    got_data = (data) =>
+      ss += data.toString('utf8')
+      switch state
+        when 0
+          if ss.match /^\*\s+OK[^\r]*\r\n/m
+            ss = ''
+            state++
+            @write "a1 STARTTLS\r\n", 'utf-8'
+        when 1
+          if ss.match /^a1\s+OK[^\r]*\r\n/m
             @start_tls()
             @removeListener 'data', got_data
 
