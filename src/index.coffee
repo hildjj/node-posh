@@ -256,9 +256,13 @@ class @POSHsmtp extends @POSHtls
             state++
             @write 'STARTTLS\n', 'utf-8'
         when 2
-          if ss.match /^220\s+[^\n]+$/m
-            @start_tls()
-            @removeListener 'data', got_data
+          if (m = ss.match /^(\d+)\s+([^\n]+)$/m)
+            if m[1] == '220'
+              @start_tls()
+              @removeListener 'data', got_data
+            else
+              @wait.reject("start-tls FAILURE: #{m[1]}")
+              @wait = null
 
     @on 'data', got_data
 
@@ -287,7 +291,44 @@ class @POSHimap extends @POSHtls
             state++
             @write "a1 STARTTLS\r\n", 'utf-8'
         when 1
-          if ss.match /^a1\s+OK[^\r]*\r\n/m
+          if (m = ss.match /^a1\s+NO\s+([^\r]*)\r\n/m)
+            @wait.reject("start-tls FAILURE: #{m[1]}")
+            @wait = null
+          else if ss.match /^a1\s+OK[^\r]*\r\n/m
+            @start_tls()
+            @removeListener 'data', got_data
+
+    @on 'data', got_data
+
+class @POSHpop extends @POSHtls
+  constructor: (domain, options={}) ->
+    opts =
+      start_tls: options.start_tls ? true
+      ca: options.ca ? []
+      verbose: options.verbose ? false
+    if opts.start_tls
+      srv = '_pop3'
+      opts.fallback_port = options.fallback_port ? 110
+    else
+      srv = '_pop3s'
+      opts.fallback_port = options.fallback_port ? 995
+    super domain, "#{srv}._tcp", opts
+
+    state = 0
+    ss = ''
+    got_data = (data) =>
+      ss += data.toString('utf8')
+      switch state
+        when 0
+          if ss.match /^\+OK[^\r]*\r\n/m
+            ss = ''
+            state++
+            @write "STARTTLS\r\n", 'utf-8'
+        when 1
+          if (m = ss.match /^-ERR\s+([^\r]+)\r\n/)
+            @wait.reject("start-tls FAILURE: #{m[1]}")
+            @wait = null
+          else if ss.match /^\+OK[^\r]*\r\n/m
             @start_tls()
             @removeListener 'data', got_data
 

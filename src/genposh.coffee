@@ -15,6 +15,7 @@ posh = require './index'
 @fromSocket = (argv) ->
   switch argv.starttls
     when 'xmpp'
+      argv.srv ?= '_xmpp-client._tcp'
       p = new posh.POSHxmpp argv.domain,
         server: !!argv.srv.match /_xmpp-server/
         verbose: argv.verbose
@@ -27,6 +28,14 @@ posh = require './index'
         start_tls: true
     when 'imaps'
       p = new posh.POSHimap argv.domain,
+        verbose: argv.verbose
+        start_tls: false
+    when 'pop'
+      p = new posh.POSHpop argv.domain,
+        verbose: argv.verbose
+        start_tls: true
+    when 'pops'
+      p = new posh.POSHpop argv.domain,
         verbose: argv.verbose
         start_tls: false
     else
@@ -80,7 +89,7 @@ posh = require './index'
         abbr: 'P'
         metavar: 'PROTOCOL'
         help: 'Use the given start-TLS protocol'
-        choices: ['imap', 'imaps', 'smtp', 'submission', 'xmpp']
+        choices: ['imap', 'imaps', 'pop', 'pops', 'smtp', 'submission', 'xmpp']
       srv:
         abbr: 's'
         metavar: 'SERVICE'
